@@ -1,6 +1,5 @@
-/* backtrace.c -- Entry point for stack backtrace library.
-   Copyright (C) 2012-2021 Free Software Foundation, Inc.
-   Written by Ian Lance Taylor, Google.
+/* unittest.c -- Test for libbacktrace library
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -30,37 +29,64 @@ STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.  */
 
-#include "config.h"
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
-#include <sys/types.h>
+#include "filenames.h"
 
 #include "backtrace.h"
+#include "backtrace-supported.h"
+
+#include "testlib.h"
 
 #include "internal.h"
 
-/* This source file is compiled if the unwind library is not
-   available.  */
+static unsigned count;
 
-int
-backtrace_full (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		int skip ATTRIBUTE_UNUSED,
-		backtrace_full_callback callback ATTRIBUTE_UNUSED,
-		backtrace_error_callback error_callback, void *data)
+static void
+error_callback (void *vdata ATTRIBUTE_UNUSED, const char *msg ATTRIBUTE_UNUSED,
+		int errnum ATTRIBUTE_UNUSED)
 {
-  error_callback (data,
-		  "no stack trace because unwind library not available",
-		  0);
-  return 0;
+  ++count;
+}
+
+static int
+test1 (void)
+{
+  int res;
+  int failed;
+
+  struct backtrace_vector vec;
+
+  memset (&vec, 0, sizeof vec);
+
+  backtrace_vector_grow (state, 100, error_callback, NULL, &vec);
+  vec.alc += vec.size;
+  vec.size = 0;
+
+  count = 0;
+  res = backtrace_vector_release (state, &vec, error_callback, NULL);
+  failed = res != 1 || count != 0 || vec.base != NULL;
+
+  printf ("%s: unittest backtrace_vector_release size == 0\n",
+	  failed ? "FAIL": "PASS");
+
+  if (failed)
+    ++failures;
+
+  return failures;
 }
 
 int
-backtrace_simple (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		  int skip ATTRIBUTE_UNUSED,
-		  backtrace_simple_callback callback ATTRIBUTE_UNUSED,
-		  backtrace_error_callback error_callback, void *data)
+main (int argc ATTRIBUTE_UNUSED, char **argv)
 {
-  error_callback (data,
-		  "no stack trace because unwind library not available",
-		  0);
-  return 0;
+  state = backtrace_create_state (argv[0], BACKTRACE_SUPPORTS_THREADS,
+				  error_callback_create, NULL);
+
+  test1 ();
+
+  exit (failures ? EXIT_FAILURE : EXIT_SUCCESS);
 }

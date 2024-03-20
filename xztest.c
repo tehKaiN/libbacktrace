@@ -1,5 +1,5 @@
-/* ztest.c -- Test for libbacktrace inflate code.
-   Copyright (C) 2017-2021 Free Software Foundation, Inc.
+/* xztest.c -- Test for libbacktrace LZMA decoder.
+   Copyright (C) 2020-2021 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Google.
 
 Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@ POSSIBILITY OF SUCH DAMAGE.  */
 #include "config.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,8 +41,8 @@ POSSIBILITY OF SUCH DAMAGE.  */
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#ifdef HAVE_ZLIB
-#include <zlib.h>
+#ifdef HAVE_LIBLZMA
+#include <lzma.h>
 #endif
 
 #include "backtrace.h"
@@ -70,14 +71,14 @@ xclock_gettime (xclockid_t id ATTRIBUTE_UNUSED,
 #endif /* !defined(HAVE_CLOCK_GETTIME) */
 
 #ifdef CLOCK_PROCESS_CPUTIME_ID
-#define ZLIB_CLOCK_GETTIME_ARG CLOCK_PROCESS_CPUTIME_ID
+#define LIBLZMA_CLOCK_GETTIME_ARG CLOCK_PROCESS_CPUTIME_ID
 #else
-#define ZLIB_CLOCK_GETTIME_ARG CLOCK_REALTIME
+#define LIBLZMA_CLOCK_GETTIME_ARG CLOCK_REALTIME
 #endif
 
-/* Some tests for the local zlib inflation code.  */
+/* Some tests for the local lzma inflation code.  */
 
-struct zlib_test
+struct lzma_test
 {
   const char *name;
   const char *uncompressed;
@@ -99,89 +100,38 @@ error_callback_compress (void *vdata ATTRIBUTE_UNUSED, const char *msg,
   exit (EXIT_FAILURE);
 }
 
-static const struct zlib_test tests[] =
+static const struct lzma_test tests[] =
 {
   {
     "empty",
     "",
     0,
-    "\x78\x9c\x03\x00\x00\x00\x00\x01",
-    8,
+    ("\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\x00\x00\x00\x00"
+     "\x1c\xdf\x44\x21\x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a"),
+    32,
   },
   {
     "hello",
     "hello, world\n",
     0,
-    ("\x78\x9c\xca\x48\xcd\xc9\xc9\xd7\x51\x28\xcf"
-     "\x2f\xca\x49\xe1\x02\x04\x00\x00\xff\xff\x21\xe7\x04\x93"),
-    25,
+    ("\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\x02\x00\x21\x01"
+     "\x16\x00\x00\x00\x74\x2f\xe5\xa3\x01\x00\x0c\x68\x65\x6c\x6c\x6f"
+     "\x2c\x20\x77\x6f\x72\x6c\x64\x0a\x00\x00\x00\x00\x7b\x46\x5a\x81"
+     "\xc9\x12\xb8\xea\x00\x01\x25\x0d\x71\x19\xc4\xb6\x1f\xb6\xf3\x7d"
+     "\x01\x00\x00\x00\x00\x04\x59\x5a"),
+    72,
   },
   {
     "goodbye",
     "goodbye, world",
     0,
-    ("\x78\x9c\x4b\xcf\xcf\x4f\x49\xaa"
-     "\x4c\xd5\x51\x28\xcf\x2f\xca\x49"
-     "\x01\x00\x28\xa5\x05\x5e"),
-    22,
+    ("\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\x02\x00\x21\x01"
+     "\x16\x00\x00\x00\x74\x2f\xe5\xa3\x01\x00\x0d\x67\x6f\x6f\x64\x62"
+     "\x79\x65\x2c\x20\x77\x6f\x72\x6c\x64\x00\x00\x00\xf6\xf8\xa3\x33"
+     "\x8c\x4e\xc9\x68\x00\x01\x26\x0e\x08\x1b\xe0\x04\x1f\xb6\xf3\x7d"
+     "\x01\x00\x00\x00\x00\x04\x59\x5a"),
+    72,
   },
-  {
-    "ranges",
-    ("\xcc\x11\x00\x00\x00\x00\x00\x00\xd5\x13\x00\x00\x00\x00\x00\x00"
-     "\x1c\x14\x00\x00\x00\x00\x00\x00\x72\x14\x00\x00\x00\x00\x00\x00"
-     "\x9d\x14\x00\x00\x00\x00\x00\x00\xd5\x14\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\xfb\x12\x00\x00\x00\x00\x00\x00\x09\x13\x00\x00\x00\x00\x00\x00"
-     "\x0c\x13\x00\x00\x00\x00\x00\x00\xcb\x13\x00\x00\x00\x00\x00\x00"
-     "\x29\x14\x00\x00\x00\x00\x00\x00\x4e\x14\x00\x00\x00\x00\x00\x00"
-     "\x9d\x14\x00\x00\x00\x00\x00\x00\xd5\x14\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\xfb\x12\x00\x00\x00\x00\x00\x00\x09\x13\x00\x00\x00\x00\x00\x00"
-     "\x67\x13\x00\x00\x00\x00\x00\x00\xcb\x13\x00\x00\x00\x00\x00\x00"
-     "\x9d\x14\x00\x00\x00\x00\x00\x00\xd5\x14\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\x5f\x0b\x00\x00\x00\x00\x00\x00\x6c\x0b\x00\x00\x00\x00\x00\x00"
-     "\x7d\x0b\x00\x00\x00\x00\x00\x00\x7e\x0c\x00\x00\x00\x00\x00\x00"
-     "\x38\x0f\x00\x00\x00\x00\x00\x00\x5c\x0f\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\x83\x0c\x00\x00\x00\x00\x00\x00\xfa\x0c\x00\x00\x00\x00\x00\x00"
-     "\xfd\x0d\x00\x00\x00\x00\x00\x00\xef\x0e\x00\x00\x00\x00\x00\x00"
-     "\x14\x0f\x00\x00\x00\x00\x00\x00\x38\x0f\x00\x00\x00\x00\x00\x00"
-     "\x9f\x0f\x00\x00\x00\x00\x00\x00\xac\x0f\x00\x00\x00\x00\x00\x00"
-     "\xdb\x0f\x00\x00\x00\x00\x00\x00\xff\x0f\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\xfd\x0d\x00\x00\x00\x00\x00\x00\xd8\x0e\x00\x00\x00\x00\x00\x00"
-     "\x9f\x0f\x00\x00\x00\x00\x00\x00\xac\x0f\x00\x00\x00\x00\x00\x00"
-     "\xdb\x0f\x00\x00\x00\x00\x00\x00\xff\x0f\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\xfa\x0c\x00\x00\x00\x00\x00\x00\xea\x0d\x00\x00\x00\x00\x00\x00"
-     "\xef\x0e\x00\x00\x00\x00\x00\x00\x14\x0f\x00\x00\x00\x00\x00\x00"
-     "\x5c\x0f\x00\x00\x00\x00\x00\x00\x9f\x0f\x00\x00\x00\x00\x00\x00"
-     "\xac\x0f\x00\x00\x00\x00\x00\x00\xdb\x0f\x00\x00\x00\x00\x00\x00"
-     "\xff\x0f\x00\x00\x00\x00\x00\x00\x2c\x10\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\x60\x11\x00\x00\x00\x00\x00\x00\xd1\x16\x00\x00\x00\x00\x00\x00"
-     "\x40\x0b\x00\x00\x00\x00\x00\x00\x2c\x10\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\x7a\x00\x00\x00\x00\x00\x00\x00\xb6\x00\x00\x00\x00\x00\x00\x00"
-     "\x9f\x01\x00\x00\x00\x00\x00\x00\xa7\x01\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-     "\x7a\x00\x00\x00\x00\x00\x00\x00\xa9\x00\x00\x00\x00\x00\x00\x00"
-     "\x9f\x01\x00\x00\x00\x00\x00\x00\xa7\x01\x00\x00\x00\x00\x00\x00"
-     "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"),
-    672,
-    ("\x78\x9c\x3b\x23\xc8\x00\x06\x57\x85\x21\xb4\x8c\x08\x84\x2e\x82"
-     "\xd2\x73\xa1\xf4\x55\x28\x8d\x0e\x7e\x0b\x41\x68\x4e\xa8\x7e\x1e"
-     "\x28\x7d\x1a\x4a\x6b\x42\xf5\xf9\x91\x69\x5e\x3a\x9a\x79\x84\xf4"
-     "\xc7\x73\x43\xe8\x1c\x28\x5d\x0b\xa5\xeb\x78\x20\xb4\x05\x3f\x84"
-     "\x8e\xe1\xc7\xae\xbf\x19\xaa\xee\x17\x94\xfe\xcb\x0b\xa1\xdf\xf3"
-     "\x41\x68\x11\x7e\x54\x73\xe6\x43\xe9\x35\x50\xfa\x36\x94\xfe\x8f"
-     "\xc3\x7c\x98\x79\x37\xf8\xc8\xd3\x0f\x73\xd7\x2b\x1c\xee\x8a\x21"
-     "\xd2\x5d\x3a\x02\xd8\xcd\x4f\x80\xa6\x87\x8b\x62\x10\xda\x81\x1b"
-     "\xbf\xfa\x2a\x28\xbd\x0d\x4a\xcf\x67\x84\xd0\xcb\x19\xf1\xab\x5f"
-     "\x49\xa4\x7a\x00\x48\x97\x29\xd4"),
-    152,
-  }
 };
 
 /* Test the hand coded samples.  */
@@ -193,32 +143,28 @@ test_samples (struct backtrace_state *state)
 
   for (i = 0; i < sizeof tests / sizeof tests[0]; ++i)
     {
-      char *p;
-      size_t v;
-      size_t j;
       unsigned char *uncompressed;
       size_t uncompressed_len;
 
-      p = malloc (12 + tests[i].compressed_len);
-      memcpy (p, "ZLIB", 4);
-      v = tests[i].uncompressed_len;
-      if (v == 0)
-	v = strlen (tests[i].uncompressed);
-      for (j = 0; j < 8; ++j)
-	p[j + 4] = (v >> ((7 - j) * 8)) & 0xff;
-      memcpy (p + 12, tests[i].compressed, tests[i].compressed_len);
       uncompressed = NULL;
       uncompressed_len = 0;
-      if (!backtrace_uncompress_zdebug (state, (unsigned char *) p,
-					tests[i].compressed_len + 12,
-					error_callback_compress, NULL,
-					&uncompressed, &uncompressed_len))
+      if (!backtrace_uncompress_lzma (state,
+				      ((const unsigned char *)
+				       tests[i].compressed),
+				      tests[i].compressed_len,
+				      error_callback_compress, NULL,
+				      &uncompressed, &uncompressed_len))
 	{
 	  fprintf (stderr, "test %s: uncompress failed\n", tests[i].name);
 	  ++failures;
 	}
       else
 	{
+	  size_t v;
+
+	  v = tests[i].uncompressed_len;
+	  if (v == 0)
+	    v = strlen (tests[i].uncompressed);
 	  if (uncompressed_len != v)
 	    {
 	      fprintf (stderr,
@@ -239,7 +185,7 @@ test_samples (struct backtrace_state *state)
 	      ++failures;
 	    }
 	  else
-	    printf ("PASS: inflate %s\n", tests[i].name);
+	    printf ("PASS: lzma %s\n", tests[i].name);
 
 	  backtrace_free (state, uncompressed, uncompressed_len,
 			  error_callback_compress, NULL);
@@ -247,7 +193,7 @@ test_samples (struct backtrace_state *state)
     }
 }
 
-#ifdef HAVE_ZLIB
+#if HAVE_LIBLZMA
 
 /* Given a set of TRIALS timings, discard the lowest and highest
    values and return the mean average of the rest.  */
@@ -296,15 +242,17 @@ average_time (const size_t *times, size_t trials)
 static void
 test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
 {
-#ifdef HAVE_ZLIB
+#if HAVE_LIBLZMA
   unsigned char *orig_buf;
   size_t orig_bufsize;
   size_t i;
-  char *compressed_buf;
+  lzma_stream initial_stream = LZMA_STREAM_INIT;
+  lzma_stream stream;
+  unsigned char *compressed_buf;
   size_t compressed_bufsize;
-  unsigned long compress_sizearg;
   unsigned char *uncompressed_buf;
   size_t uncompressed_bufsize;
+  unsigned char *spare_buf;
   int r;
   clockid_t cid;
   struct timespec ts1;
@@ -371,11 +319,19 @@ test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
   if (orig_buf == NULL)
     {
       /* We couldn't find an input file.  */
-      printf ("UNSUPPORTED: inflate large\n");
+      printf ("UNSUPPORTED: lzma large\n");
       return;
     }
 
-  compressed_bufsize = compressBound (orig_bufsize) + 12;
+  stream = initial_stream;
+  r =  lzma_easy_encoder (&stream, 6, LZMA_CHECK_CRC32);
+  if (r != LZMA_OK)
+    {
+      fprintf (stderr, "lzma_easy_encoder failed: %d\n", r);
+      goto fail;
+    }
+
+  compressed_bufsize = orig_bufsize + 100;
   compressed_buf = malloc (compressed_bufsize);
   if (compressed_buf == NULL)
     {
@@ -383,60 +339,59 @@ test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
       goto fail;
     }
 
-  compress_sizearg = compressed_bufsize - 12;
-  r = compress ((unsigned char *) compressed_buf + 12, &compress_sizearg,
-		orig_buf, orig_bufsize);
-  if (r != Z_OK)
+  stream.next_in = orig_buf;
+  stream.avail_in = orig_bufsize;
+  stream.next_out = compressed_buf;
+  stream.avail_out = compressed_bufsize;
+
+  do
     {
-      fprintf (stderr, "zlib compress failed: %d\n", r);
-      goto fail;
+      r = lzma_code (&stream, LZMA_FINISH);
+      if (r != LZMA_OK && r != LZMA_STREAM_END)
+	{
+	  fprintf (stderr, "lzma_code failed: %d\n", r);
+	  goto fail;
+	}
     }
+  while (r != LZMA_STREAM_END);
 
-  compressed_bufsize = compress_sizearg + 12;
+  compressed_bufsize = stream.total_out;
 
-  /* Prepare the header that our library expects.  */
-  memcpy (compressed_buf, "ZLIB", 4);
-  for (i = 0; i < 8; ++i)
-    compressed_buf[i + 4] = (orig_bufsize >> ((7 - i) * 8)) & 0xff;
-
-  uncompressed_buf = malloc (orig_bufsize);
-  if (uncompressed_buf == NULL)
+  if (!backtrace_uncompress_lzma (state, (unsigned char *) compressed_buf,
+				  compressed_bufsize,
+				  error_callback_compress, NULL,
+				  &uncompressed_buf, &uncompressed_bufsize))
     {
-      perror ("malloc");
-      goto fail;
-    }
-  uncompressed_bufsize = orig_bufsize;
-
-  if (!backtrace_uncompress_zdebug (state, (unsigned char *) compressed_buf,
-				    compressed_bufsize,
-				    error_callback_compress, NULL,
-				    &uncompressed_buf, &uncompressed_bufsize))
-    {
-      fprintf (stderr, "inflate large: backtrace_uncompress_zdebug failed\n");
+      fprintf (stderr, "lzma large: backtrace_uncompress_lzma failed\n");
       goto fail;
     }
 
   if (uncompressed_bufsize != orig_bufsize)
     {
       fprintf (stderr,
-	       "inflate large: got uncompressed length %zu, want %zu\n",
+	       "lzma large: got uncompressed length %zu, want %zu\n",
 	       uncompressed_bufsize, orig_bufsize);
       goto fail;
     }
 
   if (memcmp (uncompressed_buf, orig_buf, uncompressed_bufsize) != 0)
     {
-      fprintf (stderr, "inflate large: uncompressed data mismatch\n");
+      fprintf (stderr, "lzma large: uncompressed data mismatch\n");
       goto fail;
     }
 
-  printf ("PASS: inflate large\n");
+  printf ("PASS: lzma large\n");
+
+  spare_buf = malloc (orig_bufsize);
+  if (spare_buf == NULL)
+    {
+      perror ("malloc");
+      goto fail;
+    }
 
   for (i = 0; i < trials; ++i)
     {
-      unsigned long uncompress_sizearg;
-
-      cid = ZLIB_CLOCK_GETTIME_ARG;
+      cid = LIBLZMA_CLOCK_GETTIME_ARG;
       if (clock_gettime (cid, &ts1) < 0)
 	{
 	  if (errno == EINVAL)
@@ -445,16 +400,16 @@ test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
 	  return;
 	}
 
-      if (!backtrace_uncompress_zdebug (state,
-					(unsigned char *) compressed_buf,
-					compressed_bufsize,
-					error_callback_compress, NULL,
-					&uncompressed_buf,
-					&uncompressed_bufsize))
+      if (!backtrace_uncompress_lzma (state,
+				      (unsigned char *) compressed_buf,
+				      compressed_bufsize,
+				      error_callback_compress, NULL,
+				      &uncompressed_buf,
+				      &uncompressed_bufsize))
 	{
 	  fprintf (stderr,
-		   ("inflate large: "
-		    "benchmark backtrace_uncompress_zdebug failed\n"));
+		   ("lzma large: "
+		    "benchmark backtrace_uncompress_lzma failed\n"));
 	  return;
 	}
 
@@ -468,28 +423,40 @@ test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
       ctime += ts2.tv_nsec - ts1.tv_nsec;
       ctimes[i] = ctime;
 
+      stream = initial_stream;
+
+      r = lzma_auto_decoder (&stream, UINT64_MAX, 0);
+      if (r != LZMA_OK)
+	{
+	  fprintf (stderr, "lzma_stream_decoder failed: %d\n", r);
+	  goto fail;
+	}
+
+      stream.next_in = compressed_buf;
+      stream.avail_in = compressed_bufsize;
+      stream.next_out = spare_buf;
+      stream.avail_out = orig_bufsize;
+
       if (clock_gettime (cid, &ts1) < 0)
 	{
 	  perror("clock_gettime");
 	  return;
 	}
 
-      uncompress_sizearg = uncompressed_bufsize;
-      r = uncompress ((unsigned char *) uncompressed_buf, &uncompress_sizearg,
-		      (unsigned char *) compressed_buf + 12,
-		      compressed_bufsize - 12);
+      do
+	{
+	  r = lzma_code (&stream, LZMA_FINISH);
+	  if (r != LZMA_OK && r != LZMA_STREAM_END)
+	    {
+	      fprintf (stderr, "lzma_code failed: %d\n", r);
+	      goto fail;
+	    }
+	}
+      while (r != LZMA_STREAM_END);
 
       if (clock_gettime (cid, &ts2) < 0)
 	{
 	  perror ("clock_gettime");
-	  return;
-	}
-
-      if (r != Z_OK)
-	{
-	  fprintf (stderr,
-		   "inflate large: benchmark zlib uncompress failed: %d\n",
-		   r);
 	  return;
 	}
 
@@ -503,13 +470,13 @@ test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
   ztime = average_time (ztimes, trials);
 
   printf ("backtrace: %zu ns\n", ctime);
-  printf ("zlib     : %zu ns\n", ztime);
+  printf ("liblzma  : %zu ns\n", ztime);
   printf ("ratio    : %g\n", (double) ztime / (double) ctime);
 
   return;
 
  fail:
-  printf ("FAIL: inflate large\n");
+  printf ("FAIL: lzma large\n");
   ++failures;
 
   if (orig_buf != NULL)
@@ -519,11 +486,11 @@ test_large (struct backtrace_state *state ATTRIBUTE_UNUSED)
   if (uncompressed_buf != NULL)
     free (uncompressed_buf);
 
-#else /* !HAVE_ZLIB */
+#else /* !HAVE_LIBLZMA */
 
- printf ("UNSUPPORTED: inflate large\n");
+ printf ("UNSUPPORTED: lzma large\n");
 
-#endif /* !HAVE_ZLIB */
+#endif /* !HAVE_LIBLZMA */
 }
 
 int

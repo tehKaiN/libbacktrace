@@ -1,6 +1,5 @@
-/* backtrace.c -- Entry point for stack backtrace library.
-   Copyright (C) 2012-2021 Free Software Foundation, Inc.
-   Written by Ian Lance Taylor, Google.
+/* test_format.c -- Test for libbacktrace library
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -30,37 +29,27 @@ STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.  */
 
-#include "config.h"
+/* This program tests the externally visible interfaces of the
+   libbacktrace library.  */
 
-#include <sys/types.h>
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "filenames.h"
 
 #include "backtrace.h"
+#include "backtrace-supported.h"
 
-#include "internal.h"
-
-/* This source file is compiled if the unwind library is not
-   available.  */
+#include "testlib.h"
 
 int
-backtrace_full (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		int skip ATTRIBUTE_UNUSED,
-		backtrace_full_callback callback ATTRIBUTE_UNUSED,
-		backtrace_error_callback error_callback, void *data)
+main (int argc ATTRIBUTE_UNUSED, char **argv)
 {
-  error_callback (data,
-		  "no stack trace because unwind library not available",
-		  0);
-  return 0;
-}
+  state = backtrace_create_state (argv[0], BACKTRACE_SUPPORTS_THREADS,
+				  error_callback_create, NULL);
 
-int
-backtrace_simple (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		  int skip ATTRIBUTE_UNUSED,
-		  backtrace_simple_callback callback ATTRIBUTE_UNUSED,
-		  backtrace_error_callback error_callback, void *data)
-{
-  error_callback (data,
-		  "no stack trace because unwind library not available",
-		  0);
-  return 0;
+  exit (failures ? EXIT_FAILURE : EXIT_SUCCESS);
 }
